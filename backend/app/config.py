@@ -8,6 +8,13 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Loads backend/.env (if present) into the process environment on first
+# import, without overriding variables already set by the real shell/host.
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 
 @dataclass(frozen=True)
