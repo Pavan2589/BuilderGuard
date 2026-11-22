@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from ..adapters.github_api import GitHubAPIAdapter
 from ..agent import run_review_agent
@@ -7,12 +7,21 @@ from ..errors import BuilderGuardError
 from ..github_url import parse_pr_url
 from ..groq_client import GroqClient
 from ..schemas import ReviewRequest, ReviewResponse
+from ..security.rate_limit import RateLimiter
 from ..session import ReviewSession
 
 router = APIRouter()
 
+# Each review drives several real Groq API calls, so this endpoint gets the
+# same abuse protection as the Security Lab's run endpoint.
+_review_rate_limiter = RateLimiter(max_requests=20, window_seconds=60)
 
-@router.post("/api/reviews", response_model=ReviewResponse)
+
+@router.post(
+    "/api/reviews",
+    response_model=ReviewResponse,
+    dependencies=[Depends(_review_rate_limiter)],
+)
 async def create_review(payload: ReviewRequest) -> ReviewResponse:
     settings = get_settings()
 

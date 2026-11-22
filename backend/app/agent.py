@@ -26,6 +26,7 @@ Flow:
 """
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -264,3 +265,40 @@ def _tool_result(tool_call_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         "tool_call_id": tool_call_id,
         "content": json.dumps(payload, default=str)[:30_000],
     }
+
+
+def review_pull_request(pr: Any, github_client: GitHubAdapter) -> dict[str, Any]:
+    """Security Lab integration point: run the SAME production review loop
+    (run_review_agent, above) against a synthetic PR and a mock GitHubAdapter.
+
+    This is the callable `app.security.agent_adapter.load_real_agent_workflow`
+    looks for. `pr` only needs `.number` and `.repo`; the actual PR content
+    (title/body/diff/comments) is served by `github_client` itself, exactly
+    as it would be for a real GitHub PR.
+
+    The returned "response" text concatenates the summary, every finding, and
+    any limitations, so assertion checks that scan for keywords/phrases see
+    everything the model actually said - not just its one-line summary.
+    """
+    owner, _, repo_name = pr.repo.partition("/")
+    repo_name = repo_name or pr.repo
+
+    result = asyncio.run(
+        run_review_agent(
+            owner=owner or "security-lab",
+            repo=repo_name,
+            pull_number=pr.number,
+            adapter=github_client,
+        )
+    )
+
+    parts = [result.summary]
+    for finding in result.findings:
+        parts.append(
+            f"[{finding.severity}] {finding.title}: {finding.explanation} "
+            f"(evidence: {finding.evidence or 'n/a'}) (suggestion: {finding.suggestion or 'n/a'})"
+        )
+    if result.limitations:
+        parts.append("Limitations: " + "; ".join(result.limitations))
+
+    return {"response": "\n".join(p for p in parts if p), "tool_calls": []}

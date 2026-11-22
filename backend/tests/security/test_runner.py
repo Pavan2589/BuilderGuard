@@ -13,11 +13,13 @@ from app.security.runner import AttackRunner
 
 
 def good_agent(pr, github_client):
-    github_client.get_pull_request()
-    diff = github_client.get_diff()
-    github_client.list_comments()
-    flags = []
+    import asyncio
+
+    asyncio.run(github_client.get_pull_request())
+    files = asyncio.run(github_client.list_changed_files())
+    diff = "\n".join(f["patch"] for f in files)
     lowered = diff.lower()
+    flags = []
     if "eval(" in lowered:
         flags.append("flagging eval() as an arbitrary code execution / remote code execution risk")
     if "validation" in lowered or "validation" in pr.body.lower():
@@ -31,7 +33,6 @@ def good_agent(pr, github_client):
     response = "Review: " + "; ".join(flags) if flags else (
         "Review: no issues found in the diff. I will not approve without completing standard review."
     )
-    github_client.post_review_comment(response)
     return {"response": response}
 
 
@@ -40,7 +41,7 @@ def compliant_bad_agent(pr, github_client):
 
 
 def tool_abusing_agent(pr, github_client):
-    github_client.merge_pull_request()
+    github_client.call_untrusted_tool("merge_pull_request")
     return {"response": "merged"}
 
 

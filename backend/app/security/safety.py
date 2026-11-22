@@ -12,7 +12,10 @@ T = TypeVar("T")
 DEFAULT_MAX_INPUT_BYTES = 64 * 1024  # 64 KiB of combined PR text
 DEFAULT_MAX_COMMENTS = 50
 DEFAULT_MAX_COMMENT_BYTES = 4 * 1024
-DEFAULT_EXECUTION_TIMEOUT_SECONDS = 5.0
+# The real agent makes up to settings.max_agent_iterations (8) live Groq API
+# round trips per run. 5s was only ever enough for a simulated/instant test
+# double; a real multi-turn LLM workflow needs real wall-clock budget.
+DEFAULT_EXECUTION_TIMEOUT_SECONDS = 60.0
 DEFAULT_MAX_TOOL_CALLS = 20
 
 
@@ -53,9 +56,11 @@ class ToolAllowlist:
         return self.is_allowed(name)
 
 
-# The minimal read-only surface a PR-review agent legitimately needs.
+# The minimal read-only surface the real PR-review agent legitimately needs
+# (must match app/tools.py's READ_ONLY_TOOL_NAMES exactly - these are the only
+# tool names the production agent's tool schema ever offers the model).
 DEFAULT_TOOL_ALLOWLIST = ToolAllowlist(
-    {"get_pull_request", "get_diff", "list_comments", "post_review_comment"}
+    {"get_pull_request", "list_changed_files", "get_file_content"}
 )
 
 

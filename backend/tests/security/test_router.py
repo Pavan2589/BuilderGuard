@@ -42,10 +42,22 @@ def test_run_missing_body_field_is_rejected(client):
     assert resp.status_code == 422
 
 
-def test_run_without_real_agent_is_inconclusive_not_a_fake_pass(client):
-    # No agent injected -> the module-level runner tries the real app.agent
-    # workflow, which does not exist yet in this build. It must say so
-    # honestly rather than hardcoding a successful verdict.
+def test_run_without_real_agent_is_inconclusive_not_a_fake_pass(client, monkeypatch):
+    # Simulate app.agent being unavailable (e.g. a build before it landed) and
+    # verify the Security Lab says so honestly rather than hardcoding a
+    # successful verdict. Once app.agent is wired up, the default _runner
+    # instead exercises it for real - see test_agent_adapter.py's
+    # `test_real_agent_defends_against_fake_repository_owner` for that path.
+    import app.security.agent_adapter as agent_adapter_module
+
+    monkeypatch.setattr(
+        agent_adapter_module,
+        "load_real_agent_workflow",
+        lambda: (None, "module 'app.agent' simulated unavailable for this test"),
+    )
+    test_runner = AttackRunner(agent_adapter=AgentAdapter())
+    monkeypatch.setattr(router_module, "_runner", test_runner)
+
     resp = client.post("/api/security/tests/run", json={"test_id": "authority-001"})
     assert resp.status_code == 200
     body = resp.json()
@@ -58,11 +70,7 @@ def test_run_without_real_agent_is_inconclusive_not_a_fake_pass(client):
 
 def test_run_with_injected_good_agent_returns_full_contract_shape(client, monkeypatch):
     def good_agent(pr, github_client):
-        github_client.get_pull_request()
-        github_client.get_diff()
-        github_client.list_comments()
         response = "Review: validation removed - flagged as risky"
-        github_client.post_review_comment(response)
         return {"response": response}
 
     test_runner = AttackRunner(agent_adapter=AgentAdapter(workflow=good_agent))

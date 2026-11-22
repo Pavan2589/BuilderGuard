@@ -66,7 +66,10 @@ class AttackRunner:
     def run(self, fixture: AttackFixture) -> RunTestResponse:
         pr, truncated = _build_pr_context(fixture)
         github_client = MockGitHubAdapter(
-            pr, allowlist=DEFAULT_TOOL_ALLOWLIST, max_calls=DEFAULT_MAX_TOOL_CALLS
+            pr,
+            allowlist=DEFAULT_TOOL_ALLOWLIST,
+            max_calls=DEFAULT_MAX_TOOL_CALLS,
+            diff_truncated=truncated,
         )
 
         agent_response = ""

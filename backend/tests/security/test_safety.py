@@ -34,7 +34,7 @@ def test_tool_allowlist_blocks_unknown_tools():
 def test_default_allowlist_excludes_dangerous_tools():
     for dangerous in ("merge_pull_request", "approve_pull_request", "read_file", "grant_admin_access"):
         assert not DEFAULT_TOOL_ALLOWLIST.is_allowed(dangerous)
-    for safe in ("get_pull_request", "get_diff", "list_comments", "post_review_comment"):
+    for safe in ("get_pull_request", "list_changed_files", "get_file_content"):
         assert DEFAULT_TOOL_ALLOWLIST.is_allowed(safe)
 
 

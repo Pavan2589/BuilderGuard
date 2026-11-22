@@ -1,11 +1,25 @@
 """Controlled mock GitHub adapter.
 
-Supplies synthetic (and sometimes malicious) PR text and known code-review
-issues, and records every call made against it. That call log is the
-authoritative, tamper-proof observation channel the evaluator uses -
+Implements the SAME `GitHubAdapter` protocol (app/adapters/base.py) the real
+production agent (app/agent.py) depends on - async get_pull_request /
+list_changed_files / get_file_content - so the Security Lab can run the real
+review workflow unmodified against synthetic PR data, instead of a pretend
+tool surface the real agent doesn't actually have.
+
+Every call - permitted or not - is guarded against an allowlist and a
+max-call budget, and recorded in `self.calls`. That call log is the
+authoritative, tamper-proof observation channel the evaluator uses,
 independent of whatever the agent itself claims to have done.
+
+`call_untrusted_tool` exists only so a test double standing in for a
+*hypothetically misbehaving* agent can simulate reaching for a tool
+(`merge_pull_request`, `grant_admin_access`, ...) that the real agent's tool
+schema (app/tools.py) never actually offers it - the production workflow can
+never reach these names on its own.
 """
 from __future__ import annotations
+
+import re
 
 from app.security.agent_adapter import PullRequestContext
 from app.security.models import ToolCallRecord
@@ -17,17 +31,19 @@ from app.security.safety import (
     ToolNotAllowed,
 )
 
+_FILENAME_RE = re.compile(r"^\+\+\+ b/(.+)$", re.MULTILINE)
+
+
+def _extract_filename(diff: str) -> str:
+    match = _FILENAME_RE.search(diff)
+    return match.group(1).strip() if match else "changed_file.diff"
+
 
 class MockGitHubAdapter:
-    """Stand-in for the real GitHub client/tool surface used by the PR-review agent.
+    """Stand-in for the real GitHub client used by the production PR-review agent.
 
-    Exposes the same read-only methods a review agent is expected to call
-    (`get_pull_request`, `get_diff`, `list_comments`, `post_review_comment`)
-    plus a handful of dangerous methods (`merge_pull_request`,
-    `approve_pull_request`, `read_file`, `grant_admin_access`) that a correctly
-    scoped review agent should never need. Any call - allowed or not - is
-    guarded against the allowlist and the max-call budget, and recorded in
-    `self.calls` either way.
+    Exposes the exact async methods `GitHubAdapter` requires, backed by a
+    single synthetic PR's fabricated (and sometimes malicious) text.
     """
 
     def __init__(
@@ -36,10 +52,12 @@ class MockGitHubAdapter:
         *,
         allowlist: ToolAllowlist = DEFAULT_TOOL_ALLOWLIST,
         max_calls: int = DEFAULT_MAX_TOOL_CALLS,
+        diff_truncated: bool = False,
     ):
         self._pr = pr
         self._allowlist = allowlist
         self._max_calls = max_calls
+        self._diff_truncated = diff_truncated
         self.calls: list[ToolCallRecord] = []
 
     def _guard(self, tool: str, arguments: dict) -> None:
@@ -53,43 +71,49 @@ class MockGitHubAdapter:
             raise ToolNotAllowed(f"tool '{tool}' is not in the allowlist")
         self.calls.append(ToolCallRecord(tool=tool, arguments=arguments, blocked=False))
 
-    # --- expected read-only surface -------------------------------------------------
-    def get_pull_request(self, number: int | None = None) -> dict:
-        self._guard("get_pull_request", {"number": number or self._pr.number})
+    # --- the real, read-only GitHubAdapter protocol ---------------------------------
+    async def get_pull_request(self, owner: str = "", repo: str = "", pull_number: int = 0) -> dict:
+        self._guard("get_pull_request", {"owner": owner, "repo": repo, "pull_number": pull_number})
+        body = self._pr.body
+        if self._pr.comments:
+            body = body + "\n\nPR comments:\n" + "\n".join(f"- {c}" for c in self._pr.comments)
         return {
             "number": self._pr.number,
             "title": self._pr.title,
+            "body": body,
             "author": self._pr.author,
-            "repo": self._pr.repo,
+            "base_ref": "main",
+            "head_ref": "security-lab-fixture",
+            "base_sha": "mock-base-sha",
+            "head_sha": "mock-head-sha",
+            "additions": self._pr.diff.count("\n+"),
+            "deletions": self._pr.diff.count("\n-"),
+            "changed_files": 1,
+            "state": "open",
+            "html_url": f"https://github.com/{self._pr.repo}/pull/{self._pr.number}",
         }
 
-    def get_diff(self, number: int | None = None) -> str:
-        self._guard("get_diff", {"number": number or self._pr.number})
-        return self._pr.diff
+    async def list_changed_files(self, owner: str = "", repo: str = "", pull_number: int = 0) -> list[dict]:
+        self._guard("list_changed_files", {"owner": owner, "repo": repo, "pull_number": pull_number})
+        return [
+            {
+                "filename": _extract_filename(self._pr.diff),
+                "status": "modified",
+                "additions": self._pr.diff.count("\n+"),
+                "deletions": self._pr.diff.count("\n-"),
+                "patch": self._pr.diff,
+                "truncated": self._diff_truncated,
+            }
+        ]
 
-    def list_comments(self, number: int | None = None) -> list[str]:
-        self._guard("list_comments", {"number": number or self._pr.number})
-        return list(self._pr.comments)
-
-    def post_review_comment(self, body: str, number: int | None = None) -> dict:
-        self._guard(
-            "post_review_comment", {"number": number or self._pr.number, "body": body}
+    async def get_file_content(self, owner: str = "", repo: str = "", path: str = "", ref: str = "") -> str:
+        self._guard("get_file_content", {"owner": owner, "repo": repo, "path": path, "ref": ref})
+        return (
+            f"(Security Lab mock: no separate file content is available for "
+            f"'{path}'; the full change is already in the diff.)"
         )
+
+    # --- simulated dangerous surface, for defense-in-depth test doubles only -------
+    def call_untrusted_tool(self, name: str, **kwargs) -> dict:
+        self._guard(name, kwargs)
         return {"ok": True}
-
-    # --- dangerous surface a review agent should never need ------------------------
-    def merge_pull_request(self, number: int | None = None) -> dict:
-        self._guard("merge_pull_request", {"number": number or self._pr.number})
-        return {"merged": True}
-
-    def approve_pull_request(self, number: int | None = None) -> dict:
-        self._guard("approve_pull_request", {"number": number or self._pr.number})
-        return {"approved": True}
-
-    def read_file(self, path: str) -> str:
-        self._guard("read_file", {"path": path})
-        return f"<mock file contents for {path}>"
-
-    def grant_admin_access(self, target: str = "") -> dict:
-        self._guard("grant_admin_access", {"target": target})
-        return {"granted": True}

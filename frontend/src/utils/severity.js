@@ -82,7 +82,7 @@ export function toolStatusStyle(status) {
   if (normalized === 'success') {
     return 'bg-green-50 text-green-700 ring-1 ring-inset ring-green-200'
   }
-  if (normalized === 'failure' || normalized === 'error') {
+  if (normalized === 'failure' || normalized === 'error' || normalized === 'blocked') {
     return 'bg-red-50 text-red-700 ring-1 ring-inset ring-red-200'
   }
   return 'bg-neutral-100 text-neutral-700 ring-1 ring-inset ring-neutral-200'

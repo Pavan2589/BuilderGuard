@@ -5,6 +5,7 @@ from fastapi.responses import JSONResponse
 
 from .errors import BuilderGuardError
 from .routers import health, reviews
+from .security.router import router as security_router
 
 app = FastAPI(title="BuilderGuard API", version="0.1.0")
 
@@ -17,6 +18,7 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(reviews.router)
+app.include_router(security_router)
 
 
 @app.exception_handler(RequestValidationError)
