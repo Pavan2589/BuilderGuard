@@ -2,6 +2,23 @@
 
 BuilderGuard is an automated PR-review agent paired with a **Security Lab** that red-teams the agent itself. Point it at a GitHub pull request and it uses an LLM (via Groq) with read-only tools to inspect the diff and report concrete findings — bugs, vulnerabilities, resource leaks, broken error handling. The Security Lab then runs the same agent loop against a library of adversarial PRs (prompt injection, authority spoofing, data exfiltration, etc.) to verify it can't be manipulated into leaking secrets, approving malicious code, or acting outside its read-only tool set.
 
+## Problems BuilderGuard addresses
+
+1. **Prompt Injection** — Prevents malicious instructions embedded in pull requests from controlling the AI agent.
+2. **Authority Spoofing** — Rejects fake administrator, developer, or system-level instructions.
+3. **Sensitive Data Leakage** — Protects API keys, credentials, internal instructions, and confidential information from extraction attempts.
+4. **Unauthorized Tool Usage** — Restricts the agent from executing unauthorized actions or accessing unrelated resources.
+5. **AI Hallucinations** — Reduces fabricated code-review findings, nonexistent bugs, and unsupported claims through evidence-based validation.
+6. **Indirect and Encoded Prompt Injection** — Tests malicious instructions hidden in code comments, Markdown, encoded text, and tool responses.
+7. **Resource Exhaustion** — Limits oversized inputs, excessive token consumption, and expensive agent operations.
+8. **API Security Vulnerabilities** — Validates URLs and inputs, restricts external requests, and handles potentially unsafe AI-generated output.
+9. **Rate Limiting and Request Flooding** — Controls excessive requests to protect server resources and external API quotas.
+10. **Agent Reliability and Tool Failures** — Handles GitHub API failures, Groq timeouts, malformed responses, and unavailable services without fabricating successful reviews.
+
+**Core value:** BuilderGuard combines AI-powered code review with security testing to make AI agents more useful, resilient, and accountable.
+
+These are the problems and intended defenses the Security Lab tests against. Individual protections should only be considered fully verified for a given build once their corresponding fixtures pass.
+
 ## How it works
 
 - **PR Review** — `POST /api/reviews` takes a GitHub PR URL, fetches PR metadata/diffs via the GitHub API, and runs an agent loop (`backend/app/agent.py`) that calls `get_pull_request`, `list_changed_files`, and `get_file_content` as needed before finishing with a single `submit_findings` call. Tool calls are validated against a server-side allowlist regardless of what the model requests.
